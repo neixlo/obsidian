@@ -1,3 +1,3 @@
 arxiv
-openreview
+openreview-py
 PyPDF2
