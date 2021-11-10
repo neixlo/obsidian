@@ -14,24 +14,23 @@ TEMPLATE_AGENDA = """
 ## Tasks
 
 Outstanding
-
 ```tasks
 not done
 due before {due}
 ```
 
 Finished
-
 ```tasks
 done on {today}
 ```
-
 
 ## Today
 
 {events_today}
 
+
 ## Notes
+
 
 ## Upcoming
 
