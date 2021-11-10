@@ -9,18 +9,29 @@ from collections import defaultdict
 
 
 TEMPLATE_AGENDA = """
-# Agenda for {today}
+# Agenda for {today_long}
 
 ## Tasks
+
+Outstanding
 
 ```tasks
 not done
 due before {due}
 ```
 
+Finished
+
+```tasks
+done on {today}
+```
+
+
 ## Today
 
 {events_today}
+
+## Notes
 
 ## Upcoming
 
@@ -81,16 +92,20 @@ def build_note_for_date(events, date, args):
             events_upcoming[(event_start - date).days].append(event)
 
     txt = TEMPLATE_AGENDA.format(
-        today=date.strftime('%A - %B %d, %Y'),
+        today=date.strftime('%Y-%m-%d'),
+        today_long=date.strftime('%A - %B %d, %Y'),
         due=(date + datetime.timedelta(days=14)).strftime('%Y-%m-%d'),
         events_today='\n\n'.join(events_today),
         events_upcoming=format_upcoming(events_upcoming, args.subtree, args.name_format),
     )
 
     fnote = pathlib.Path(os.path.join(args.vault, args.subtree, date.strftime(args.name_format)))
-    with fnote.open('wt') as f:
-        f.write(txt)
-    print('Wrote:\n{}'.format(fnote))
+    if fnote.exists():
+        print('Skipping existing note {}'.format(fnote))
+    else:
+        with fnote.open('wt') as f:
+            f.write(txt)
+        print('Wrote:\n{}'.format(fnote))
 
 
 def force_datetime(date):
