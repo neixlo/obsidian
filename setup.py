@@ -92,6 +92,9 @@ setup(
     # "scripts" keyword. Entry points provide cross-platform support and allow
     # pip to create the appropriate form of executable for the target platform.
     entry_points={
-        'console_scripts': ['download_paper=vobsidian.interactive.download_paper:main'],
+        'console_scripts': [
+            'download_paper=vobsidian.interactive.download_paper:main',
+            'make_daily_note=vobsidian.interactive.make_daily_note:main',
+        ],
     },
 )

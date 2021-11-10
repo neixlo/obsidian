@@ -34,10 +34,10 @@ class Parser:
         dout = pathlib.Path(self.dobsidian, self.tree)
         filename = '{} --- {}.pdf'.format(','.join(authors), title)
         fpdf = dout.joinpath('pdfs', filename)
-    
+
         if not fpdf.parent.exists():
             os.makedirs(fpdf.parent)
-    
+
         annotation_pdf = pdf
         if download_pdf:
             dpdfs = dout.joinpath('pdfs')
@@ -48,7 +48,7 @@ class Parser:
             with open(dpdfs.joinpath(filename.replace(':', '')), 'wb') as f:
                 f.write(data)
             annotation_pdf = '{}/pdfs/{}'.format(self.tree, filename.replace(':', ''))
-    
+
         lines = [
             '---',
             'annotation-target: {}'.format(annotation_pdf),
@@ -139,8 +139,8 @@ def main():
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
     parser.add_argument('url', help='URL to download from.')
     parser.add_argument('--silent', action='store_true', help='print debug info.')
-    parser.add_argument('--obsidian', default='{}/notes/Research'.format(os.environ['HOME']), help='where is your Obsidian root.')
-    parser.add_argument('--tree', default='Papers', help='subtree of your Obsidian where papers are stored.')
+    parser.add_argument('--vault', default='{}/notes/Research'.format(os.environ['HOME']), help='where is your Obsidian root.')
+    parser.add_argument('--subtree', default='Papers', help='subtree of your Obsidian where papers are stored.')
     parser.add_argument('--download_pdf', action='store_true', help='download a local copy of the PDF.')
     parser.add_argument('--mode', choices=('auto', 'arxiv', 'openreview', 'pdf'), default='auto', help='force a parse mode.')
     parser.add_argument('--authors', default='unknown', help='default author list, delimited by ;')
@@ -165,7 +165,7 @@ def main():
         arxiv=ArxivParser,
         pdf=PDFParser,
     )[mode]
-    parser = P(args.obsidian, args.tree)
+    parser = P(args.vault, args.subtree)
 
     defaults = dict(
         authors=[a.strip() for a in args.authors.split(';')],
