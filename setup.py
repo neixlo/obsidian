@@ -95,6 +95,7 @@ setup(
         'console_scripts': [
             'download_paper=vobsidian.interactive.download_paper:main',
             'make_daily_note=vobsidian.interactive.make_daily_note:main',
+            'make_tripit_note=vobsidian.interactive.make_tripit_note:main',
         ],
     },
 )

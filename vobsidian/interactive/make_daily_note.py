@@ -134,14 +134,18 @@ def main():
     parser.add_argument('--subtree', default='Agenda', help='subtree of your Obsidian where agenda notes are stored.')
     parser.add_argument('--upcoming', default=7, help='How many days upcoming to show', type=int)
     parser.add_argument('--days', default=1, help='How many days to parse', type=int)
-    parser.add_argument('--name_format', default='%Y-%m-%d-%a.md', help='File name format')
-    parser.add_argument('--account', help='google account')
+    parser.add_argument('--name_format', default='%Y-%m-%d.md', help='File name format')
+    parser.add_argument('--calendars', help='calendar IDs', nargs='+')
+    parser.add_argument('--fcredentials', help='credentials file', default=os.path.join(os.environ['HOME'], '.credentials', 'gcal.json'))
     args = parser.parse_args()
 
     now = datetime.datetime.now(tz=tzlocal.get_localzone()).replace(hour=0, minute=0, second=0, microsecond=0)
 
-    calendar = GoogleCalendar(args.account)
-    events = calendar.get_events(now, now + datetime.timedelta(days=args.days - 1 + args.upcoming), single_events=True, order_by='startTime')
+    events = []
+    for g in args.calendars:
+        calendar = GoogleCalendar(g, credentials_path=args.fcredentials)
+        events.extend(list(calendar.get_events(now, now + datetime.timedelta(days=args.days - 1 + args.upcoming), single_events=True, order_by='startTime')))
+    events.sort(key=lambda e: force_datetime(e.start))
     build_notes(events, now, args)
 
 
