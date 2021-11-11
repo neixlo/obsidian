@@ -88,7 +88,7 @@ TEMPLATE_LODGING = """
 TEMPLATE_FLIGHT = """
 ### {start_city_name} to {end_city_name} on {marketing_airline} {marketing_flight_number}
 
-[Map](map_query)
+[Map]({map_query})
 
 {top}
 
@@ -103,7 +103,7 @@ TEMPLATE_FLIGHT = """
 TEMPLATE_TRAIN = """
 ### {start_station_name} to {end_station_name} on {service_class} {train_number}
 
-[Map](map_query)
+[Map]({map_query})
 
 {top}
 
