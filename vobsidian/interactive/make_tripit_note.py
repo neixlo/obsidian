@@ -47,6 +47,8 @@ TripitURL:: {relative_url}
 ```itinerary
 initialDate: {start_date}
 initialView: listMonth
+headerToolbar:
+eventOrder: start,color
 ```
 """.strip()
 
@@ -63,7 +65,7 @@ start: {StartDateTime[date]}T{StartDateTime[time]}
 end: {EndDateTime[date]}T{EndDateTime[time]}
 startTimeZone: {StartDateTime[timezone]}
 endTimeZone: {EndDateTime[timezone]}
-color: brown
+color: {colour}
 tag:
 - lodging
 ```
@@ -161,7 +163,7 @@ def build_note_for_trip(trip, objects, args):
             force_keys(obj, ['total_cost', 'room_type'])
             if 'Address' not in obj:
                 obj['Address'] = dict(address=None)
-            txt += '\n\n' + TEMPLATE_LODGING.format(top=TEMPLATE_TOP.format(**obj), map_query=get_map_query(obj['display_name'], obj['Address']['address'] or ''), **obj)
+            txt += '\n\n' + TEMPLATE_LODGING.format(top=TEMPLATE_TOP.format(colour='DarkSlateBlue', **obj), map_query=get_map_query(obj['display_name'], obj['Address']['address'] or ''), **obj)
 
         if 'AirObject' in objects:
             txt += '\n\n' + HEADER_DEFAULT.format(field='Flight')
@@ -170,7 +172,7 @@ def build_note_for_trip(trip, objects, args):
                 obj['Segment'] = [obj['Segment']]
             for s in obj['Segment']:
                 s['display_name'] = '{} to {} ({}{})'.format(s['start_city_name'], s['end_city_name'], s['marketing_airline'], s['marketing_flight_number'])
-                txt += '\n\n' + TEMPLATE_FLIGHT.format(top=TEMPLATE_TOP.format(**s), map_query=get_map_query(s['start_city_name'], s['start_airport_code'], 'Airport'), **s)
+                txt += '\n\n' + TEMPLATE_FLIGHT.format(top=TEMPLATE_TOP.format(colour='DarkSlateGrey', **s), map_query=get_map_query(s['start_city_name'], s['start_airport_code'], 'Airport'), **s)
 
         if 'RailObject' in objects:
             txt += '\n\n' + HEADER_DEFAULT.format(field='Rail')
@@ -179,7 +181,7 @@ def build_note_for_trip(trip, objects, args):
                 obj['Segment'] = [obj['Segment']]
             for s in obj['Segment']:
                 s['display_name'] = '{} to {} ({}{})'.format(s['start_station_name'], s['end_station_name'], s['service_class'], s['train_number'])
-                txt += '\n\n' + TEMPLATE_TRAIN.format(top=TEMPLATE_TOP.format(**s), map_query=get_map_query(s['start_station_name']), **s)
+                txt += '\n\n' + TEMPLATE_TRAIN.format(top=TEMPLATE_TOP.format(colour='Indigo', **s), map_query=get_map_query(s['start_station_name']), **s)
 
         for k, v in objects.items():
             if k.endswith('Object') and k not in ['LodgingObject', 'WeatherObject', 'AirObject', 'RailObject', 'TransportObject']:
