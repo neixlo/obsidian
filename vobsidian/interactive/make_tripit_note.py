@@ -1,12 +1,9 @@
 import requests
 from requests_oauthlib import OAuth1
 import json
-import yaml
 import pathlib
-import pprint
 import os
-import datetime
-import maya
+import urllib
 from argparse import ArgumentParser
 from requests_oauthlib import OAuth1Session
 from collections import defaultdict
@@ -51,8 +48,6 @@ TripitURL:: {relative_url}
 initialDate: {start_date}
 initialView: listMonth
 ```
-
-
 """.strip()
 
 
@@ -62,8 +57,6 @@ HEADER_DEFAULT = """
 
 
 TEMPLATE_TOP = """
-### {display_name}
-
 ```itinerary-event
 title: {display_name}
 start: {StartDateTime[date]}T{StartDateTime[time]}
@@ -77,6 +70,10 @@ tag:
 """.strip()
 
 TEMPLATE_LODGING = """
+### {display_name}
+
+[Map]({map_query})
+
 {top}
 
 * Room: {room_type}
@@ -91,6 +88,8 @@ TEMPLATE_LODGING = """
 TEMPLATE_FLIGHT = """
 ### {start_city_name} to {end_city_name} on {marketing_airline} {marketing_flight_number}
 
+[Map](map_query)
+
 {top}
 
 * From: {start_city_name}, {start_country_code} ({start_airport_code})
@@ -99,11 +98,12 @@ TEMPLATE_FLIGHT = """
     * Duration: {duration}
     * Distance: {distance}
     * Aircraft: {aircraft_display_name}
-
 """.strip()
 
 TEMPLATE_TRAIN = """
 ### {start_station_name} to {end_station_name} on {service_class} {train_number}
+
+[Map](map_query)
 
 {top}
 
@@ -112,8 +112,8 @@ TEMPLATE_TRAIN = """
 * Train: {service_class} {train_number}
     * Coach: {coach_number}
     * Seats: {seats}
-
 """.strip()
+
 
 TEMPLATE_TRANSPORT = """
 ### {carrier_name}
@@ -135,6 +135,14 @@ def force_keys(o, keys):
             o[k] = None
 
 
+def get_map_query(*args):
+    params = dict(
+        api=1,
+        query=' '.join(args),
+    )
+    return 'https://www.google.com/maps/search/?{}'.format(urllib.parse.urlencode(params))
+
+
 def build_note_for_trip(trip, objects, args):
     fnote = pathlib.Path(os.path.join(args.vault, args.subtree, '{}-{}.md'.format(trip['start_date'], trip['display_name'].replace(' ', '_'))))
     if fnote.exists():
@@ -153,7 +161,7 @@ def build_note_for_trip(trip, objects, args):
             force_keys(obj, ['total_cost', 'room_type'])
             if 'Address' not in obj:
                 obj['Address'] = dict(address=None)
-            txt += '\n' + TEMPLATE_LODGING.format(top=TEMPLATE_TOP.format(**obj), **obj)
+            txt += '\n\n' + TEMPLATE_LODGING.format(top=TEMPLATE_TOP.format(**obj), map_query=get_map_query(obj['display_name'], obj['Address']['address'] or ''), **obj)
 
         if 'AirObject' in objects:
             txt += '\n\n' + HEADER_DEFAULT.format(field='Flight')
@@ -162,7 +170,7 @@ def build_note_for_trip(trip, objects, args):
                 obj['Segment'] = [obj['Segment']]
             for s in obj['Segment']:
                 s['display_name'] = '{} to {} ({}{})'.format(s['start_city_name'], s['end_city_name'], s['marketing_airline'], s['marketing_flight_number'])
-                txt += '\n' + TEMPLATE_FLIGHT.format(top=TEMPLATE_TOP.format(**s), **s)
+                txt += '\n\n' + TEMPLATE_FLIGHT.format(top=TEMPLATE_TOP.format(**s), map_query=get_map_query(s['start_city_name'], s['start_airport_code'], 'Airport'), **s)
 
         if 'RailObject' in objects:
             txt += '\n\n' + HEADER_DEFAULT.format(field='Rail')
@@ -171,7 +179,7 @@ def build_note_for_trip(trip, objects, args):
                 obj['Segment'] = [obj['Segment']]
             for s in obj['Segment']:
                 s['display_name'] = '{} to {} ({}{})'.format(s['start_station_name'], s['end_station_name'], s['service_class'], s['train_number'])
-                txt += '\n' + TEMPLATE_TRAIN.format(top=TEMPLATE_TOP.format(**s), **s)
+                txt += '\n\n' + TEMPLATE_TRAIN.format(top=TEMPLATE_TOP.format(**s), map_query=get_map_query(s['start_station_name']), **s)
 
         for k, v in objects.items():
             if k.endswith('Object') and k not in ['LodgingObject', 'WeatherObject', 'AirObject', 'RailObject', 'TransportObject']:
