@@ -46,6 +46,7 @@ class Parser:
             response = urllib.request.urlopen(pdf)
             data = response.read()
             with open(dpdfs.joinpath(filename.replace(':', '')), 'wb') as f:
+                print('Download PDF to {}'.format(f.name))
                 f.write(data)
             annotation_pdf = '{}/pdfs/{}'.format(self.tree, filename.replace(':', ''))
 
@@ -68,11 +69,12 @@ class Parser:
             '## Abstract',
             abstract,
         ])
-    
+
         if not dout.joinpath(preprint).exists():
             os.makedirs(dout.joinpath(preprint))
-    
+
         with dout.joinpath(preprint, '{}.md'.format(title)).open('wt') as f:
+            print('Writing note {}'.format(f.name))
             for line in lines:
                 f.write(line + '\n')
 
@@ -92,8 +94,6 @@ class OpenReviewParser(Parser):
         abstract = paper.content['abstract']
         pdf = 'https://openreview.net/{}'.format(paper.content['pdf'].lstrip('/'))
         ret = dict(url=url, title=title, authors=authors, abstract=abstract, pdf=pdf)
-        if 'preprint' in paper.content:
-            ret['preprint'] = paper.content['preprint']
         return ret
 
 
