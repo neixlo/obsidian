@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import os
+import re
 import datetime
 import pathlib
 import tzlocal
@@ -24,6 +25,15 @@ Finished
 done on {today}
 ```
 
+## Schedule
+
+```itinerary
+initialDate: {today}
+initialView: listYear
+headerToolbar:
+eventOrder: start,color
+```
+
 ## Today
 
 {events_today}
@@ -39,28 +49,48 @@ done on {today}
 
 TEMPLATE_EVENT = """
 ### {start_hour} {summary}
-* Start: {start}
-* End: {end}
+```itinerary-event
+title: {summary}
+start: {start}
+end: {end}
+timeZone: {timezone}
+tag: [today]
+```
 * Location: {location}
 """.strip()
+
+TEMPLATE_EVENT_UPCOMING = """
+#### {start_hour} {summary}
+```itinerary-event
+title: {summary}
+start: {start}
+end: {end}
+timeZone: {timezone}
+tag: [upcoming]
+```
+"""
 
 
 def format_event(event):
     txt = TEMPLATE_EVENT.format(
         summary=event.summary,
+        timezone=event.timezone,
         description=event.description or 'No description',
         location=event.location,
-        start=event.start.strftime('%A %b %d %-I:%M%p'),
         start_hour=event.start.strftime('%-I:%M%p'),
-        end=event.end.strftime('%A %b %d %-I:%M%p'),
+        start=event.start.isoformat(),
+        end=event.end.isoformat(),
     )
     if event.attendees:
         snip = '* Attendees'
-        for a in event.attendees:
+        for i, a in enumerate(event.attendees):
             snip += '\n  * {}'.format(getattr(a, 'email', repr(a)))
+            if i >= 2:
+                snip += '\n  ...'
+                break
         txt += '\n{}'.format(snip)
     if event.description:
-        txt += '\n- Description:\n```\n{}\n```'.format(event.description.strip())
+        txt += '\n* Description:\n```\n{}\n```'.format(event.description.strip())
     return txt
 
 
@@ -68,14 +98,22 @@ def format_upcoming(upcoming, subtree, name_format):
     txt = []
     for days, events in upcoming.items():
         date = events[0].start
-        txt.append('In [[{subtree}/{filename} | {days} days {pretty_date}]]:'.format(
+        txt.append('### In [[{subtree}/{filename} | {days} days {pretty_date}]]:'.format(
             days=days,
             subtree=subtree,
             filename=date.strftime(name_format),
             pretty_date=date.strftime('%A - %B %d'),
         ))
         for event in events:
-            txt.append('* {} {}'.format(event.start.strftime('%-I:%M%p'), event.summary))
+            txt.append(TEMPLATE_EVENT_UPCOMING.format(
+                summary=event.summary,
+                timezone=event.timezone,
+                description=event.description or 'No description',
+                location=event.location,
+                start_hour=event.start.strftime('%-I:%M%p'),
+                start=event.start.isoformat(),
+                end=event.end.isoformat(),
+            ))
         txt.append('')
     return '\n'.join(txt)
 
@@ -100,7 +138,16 @@ def build_note_for_date(events, date, args):
 
     fnote = pathlib.Path(os.path.join(args.vault, args.subtree, date.strftime(args.name_format)))
     if fnote.exists():
-        print('Skipping existing note {}'.format(fnote))
+        if args.overwrite:
+            print('Overwriting non-notes section')
+            with fnote.open('rt') as f:
+                content = f.read()
+                existing_notes = re.findall(r'(## Notes.+)\n\n## Upcoming', content, re.DOTALL)
+                assert len(existing_notes) == 1, 'Invalid number of note sections = {}'.format(len(existing_notes))
+            with fnote.open('wt') as f:
+                f.write(txt.replace('## Notes', existing_notes[0]))
+        else:
+            print('Skipping existing note {}'.format(fnote))
     else:
         with fnote.open('wt') as f:
             f.write(txt)
@@ -135,6 +182,7 @@ def main():
     parser.add_argument('--upcoming', default=7, help='How many days upcoming to show', type=int)
     parser.add_argument('--days', default=1, help='How many days to parse', type=int)
     parser.add_argument('--name_format', default='%Y-%m-%d.md', help='File name format')
+    parser.add_argument('--overwrite', action='store_true', help='Overwrite exsting note but keep Note section')
     parser.add_argument('--calendars', help='calendar IDs', nargs='+')
     parser.add_argument('--fcredentials', help='credentials file', default=os.path.join(os.environ['HOME'], '.credentials', 'gcal.json'))
     args = parser.parse_args()
