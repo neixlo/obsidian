@@ -3,10 +3,13 @@ from requests_oauthlib import OAuth1
 import json
 import pathlib
 import os
-import urllib
+import re
+from datetime import datetime
 from argparse import ArgumentParser
 from requests_oauthlib import OAuth1Session
 from collections import defaultdict
+from dataclasses import dataclass
+from .. import common as C
 
 
 def get_oauth(args):
@@ -32,24 +35,33 @@ def get_oauth(args):
     return creds
 
 
+@dataclass
+class TripitEvent(C.DefaultEvent):
+
+    type: str
+    price: str
+
+    @classmethod
+    def get_field_names(cls):
+        return ['type', 'start', 'end', 'summary', 'location', 'price']
+
+    def convert_time(self, v, show_day=False, show_year=False):
+        return super().convert_time(v, show_day=True)
+
+
 TEMPLATE_TRIP = """
 # Trip:: {display_name}
 
 Start:: {start_date}
 End:: {end_date}
 Location:: {primary_location}
+Tripit:: [link](http://tripit.com/{relative_url})
 
-```
-TripitID:: {id}
-TripitURL:: {relative_url}
-```
+{table}
 
-```itinerary
-initialDate: {start_date}
-initialView: listMonth
-headerToolbar:
-eventOrder: start,color
-```
+## Notes
+
+# Bookings
 """.strip()
 
 
@@ -58,25 +70,10 @@ HEADER_DEFAULT = """
 """.strip()
 
 
-TEMPLATE_TOP = """
-```itinerary-event
-title: {display_name}
-start: {StartDateTime[date]}T{StartDateTime[time]}
-end: {EndDateTime[date]}T{EndDateTime[time]}
-startTimeZone: {StartDateTime[timezone]}
-endTimeZone: {EndDateTime[timezone]}
-color: {colour}
-tag:
-- lodging
-```
-""".strip()
-
 TEMPLATE_LODGING = """
-### {display_name}
+### {header}
 
 [Map]({map_query})
-
-{top}
 
 * Room: {room_type}
 * Address: {Address[address]}
@@ -88,11 +85,9 @@ TEMPLATE_LODGING = """
 """.strip()
 
 TEMPLATE_FLIGHT = """
-### {start_city_name} to {end_city_name} on {marketing_airline} {marketing_flight_number}
+### {header}
 
 [Map]({map_query})
-
-{top}
 
 * From: {start_city_name}, {start_country_code} ({start_airport_code})
 * To: {end_city_name}, {end_country_code} ({end_airport_code})
@@ -103,11 +98,9 @@ TEMPLATE_FLIGHT = """
 """.strip()
 
 TEMPLATE_TRAIN = """
-### {start_station_name} to {end_station_name} on {service_class} {train_number}
+### {header}
 
 [Map]({map_query})
-
-{top}
 
 * From: {StartStationAddress[city]}, {StartStationAddress[country]} ({start_station_name})
 * To: {EndStationAddress[city]}, {EndStationAddress[country]} ({end_station_name})
@@ -117,78 +110,96 @@ TEMPLATE_TRAIN = """
 """.strip()
 
 
-TEMPLATE_TRANSPORT = """
-### {carrier_name}
-
-{top}
-
-* Confirmation {confirmation_num}
-* Booking:
-    * Name: {booking_site_name}
-    * Confirmation #: {booking_site_conf_num}
-    * Phone: {booking_site_phone}
-
-""".strip()
-
-
 def force_keys(o, keys):
     for k in keys:
         if k not in o:
             o[k] = None
 
 
-def get_map_query(*args):
-    params = dict(
-        api=1,
-        query=' '.join(args),
-    )
-    return 'https://www.google.com/maps/search/?{}'.format(urllib.parse.urlencode(params))
+def make_iso_datetime(dt):
+    return datetime.fromisoformat(dt['date'] + 'T' + dt['time'])
 
 
 def build_note_for_trip(trip, objects, args):
     fnote = pathlib.Path(os.path.join(args.vault, args.subtree, '{}-{}.md'.format(trip['start_date'], trip['display_name'].replace(' ', '_'))))
+    events = []
+
+    txt = ''
+    if 'LodgingObject' in objects:
+        txt += '\n\n' + HEADER_DEFAULT.format(field='Lodging')
+    for obj in objects.get('LodgingObject', []):
+        for k in ['name', 'conf_num', 'phone']:
+            if 'booking_site_{}'.format(k) not in obj:
+                obj['booking_site_{}'.format(k)] = obj.get('supplier_{}'.format(k))
+        force_keys(obj, ['total_cost', 'room_type'])
+        if 'Address' not in obj:
+            obj['Address'] = dict(address=None)
+        header = obj['display_name']
+        txt += '\n\n' + TEMPLATE_LODGING.format(header=header, map_query=C.get_map_query(obj['display_name'], obj['Address']['address'] or ''), **obj)
+
+        start = make_iso_datetime(obj['StartDateTime'])
+        end = make_iso_datetime(obj['EndDateTime'])
+        if 'supplier_name' in obj:
+            location = obj['supplier_name'] + ' ' + obj['Address']['address']
+        else:
+            location = None
+        events.append(TripitEvent(summary=header, start=start, end=end, location=location, type='Lodging', price=obj.get('total_cost', 'unknown')))
+
+    if 'AirObject' in objects:
+        txt += '\n\n' + HEADER_DEFAULT.format(field='Flight')
+    for obj in objects.get('AirObject', []):
+        if isinstance(obj['Segment'], dict):
+            obj['Segment'] = [obj['Segment']]
+        for i, s in enumerate(obj['Segment']):
+            s['display_name'] = '{} to {} ({}{})'.format(s['start_city_name'], s['end_city_name'], s['marketing_airline'], s['marketing_flight_number'])
+            header = '{start_city_name} to {end_city_name} on {marketing_airline} {marketing_flight_number}'.format(**s)
+            txt += '\n\n' + TEMPLATE_FLIGHT.format(header=header, map_query=C.get_map_query(s['start_city_name'], s['start_airport_code'], 'Airport'), **s)
+            start = make_iso_datetime(s['StartDateTime'])
+            end = make_iso_datetime(s['EndDateTime'])
+            location = '{} {} Airport'.format(s['start_city_name'], s['start_airport_code'])
+            events.append(TripitEvent(summary=header, start=start, end=end, location=location, type='Flight', price=obj.get('total_cost', 'unknown') if i == 0 else '-'))
+
+    if 'RailObject' in objects:
+        txt += '\n\n' + HEADER_DEFAULT.format(field='Rail')
+    for obj in objects.get('RailObject', []):
+        if isinstance(obj['Segment'], dict):
+            obj['Segment'] = [obj['Segment']]
+        for i, s in enumerate(obj['Segment']):
+            s['display_name'] = header = '{} to {} ({}{})'.format(s['start_station_name'], s['end_station_name'], s['service_class'], s['train_number'])
+            txt += '\n\n' + TEMPLATE_TRAIN.format(header=header, map_query=C.get_map_query(s['start_station_name']), **s)
+            start = make_iso_datetime(s['StartDateTime'])
+            end = make_iso_datetime(s['EndDateTime'])
+            location = '{} Station'.format(s['start_station_name'])
+            events.append(TripitEvent(summary=header, start=start, end=end, location=location, type='Train', price=obj.get('total_cost', 'unknown') if i == 0 else '-'))
+
+    for k, v in objects.items():
+        if k.endswith('Object') and k not in ['LodgingObject', 'WeatherObject', 'AirObject', 'RailObject', 'TransportObject']:
+            print(k)
+            print(v)
+            raise NotImplementedError()
+
+    header = TEMPLATE_TRIP.format(
+        table=C.make_event_table(sorted(events, key=lambda e: e.start), Event=TripitEvent),
+        **trip,
+    )
+
+    txt = header + txt
     if fnote.exists():
-        print('Skipping existing note {}'.format(fnote))
+        if args.overwrite:
+            print('Overwriting non-notes section')
+            existing_notes = ''
+            with fnote.open('rt') as f:
+                content = f.read()
+                found = re.findall(r'(## Notes.+)\n\n# Bookings', content, re.DOTALL)
+                if found:
+                    existing_notes = found[0]
+                else:
+                    existing_notes = ''
+            with fnote.open('wt') as f:
+                f.write(txt.replace('## Notes', existing_notes))
+        else:
+            print('Skipping existing note {}'.format(fnote))
     else:
-        txt = TEMPLATE_TRIP.format(
-            **trip,
-        )
-
-        if 'LodgingObject' in objects:
-            txt += '\n\n' + HEADER_DEFAULT.format(field='Lodging')
-        for obj in objects.get('LodgingObject', []):
-            for k in ['name', 'conf_num', 'phone']:
-                if 'booking_site_{}'.format(k) not in obj:
-                    obj['booking_site_{}'.format(k)] = obj.get('supplier_{}'.format(k))
-            force_keys(obj, ['total_cost', 'room_type'])
-            if 'Address' not in obj:
-                obj['Address'] = dict(address=None)
-            txt += '\n\n' + TEMPLATE_LODGING.format(top=TEMPLATE_TOP.format(colour='DarkSlateBlue', **obj), map_query=get_map_query(obj['display_name'], obj['Address']['address'] or ''), **obj)
-
-        if 'AirObject' in objects:
-            txt += '\n\n' + HEADER_DEFAULT.format(field='Flight')
-        for obj in objects.get('AirObject', []):
-            if isinstance(obj['Segment'], dict):
-                obj['Segment'] = [obj['Segment']]
-            for s in obj['Segment']:
-                s['display_name'] = '{} to {} ({}{})'.format(s['start_city_name'], s['end_city_name'], s['marketing_airline'], s['marketing_flight_number'])
-                txt += '\n\n' + TEMPLATE_FLIGHT.format(top=TEMPLATE_TOP.format(colour='DarkSlateGrey', **s), map_query=get_map_query(s['start_city_name'], s['start_airport_code'], 'Airport'), **s)
-
-        if 'RailObject' in objects:
-            txt += '\n\n' + HEADER_DEFAULT.format(field='Rail')
-        for obj in objects.get('RailObject', []):
-            if isinstance(obj['Segment'], dict):
-                obj['Segment'] = [obj['Segment']]
-            for s in obj['Segment']:
-                s['display_name'] = '{} to {} ({}{})'.format(s['start_station_name'], s['end_station_name'], s['service_class'], s['train_number'])
-                txt += '\n\n' + TEMPLATE_TRAIN.format(top=TEMPLATE_TOP.format(colour='Indigo', **s), map_query=get_map_query(s['start_station_name']), **s)
-
-        for k, v in objects.items():
-            if k.endswith('Object') and k not in ['LodgingObject', 'WeatherObject', 'AirObject', 'RailObject', 'TransportObject']:
-                print(k)
-                print(v)
-                raise NotImplementedError()
-
         with fnote.open('wt') as f:
             f.write(txt)
         print('Wrote:\n{}'.format(fnote))
@@ -214,6 +225,7 @@ def main():
     parser = ArgumentParser()
     parser.add_argument('--fcredentials', default=os.path.join(os.environ['HOME'], '.credentials', 'tripit.json'))
     parser.add_argument('--silent', action='store_true', help='print debug info.')
+    parser.add_argument('--overwrite', action='store_true', help='over write existing.')
     parser.add_argument('--vault', default='{}/notes/Research'.format(os.environ['HOME']), help='where is your Obsidian root.')
     parser.add_argument('--subtree', default='Trips', help='subtree of your Obsidian where trip notes are stored.')
     parser.add_argument('--trip', help='Which trip to pull. Use all to pull everything')

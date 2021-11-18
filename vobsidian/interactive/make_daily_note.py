@@ -5,12 +5,16 @@ import re
 import datetime
 import pathlib
 import tzlocal
-from gcsa.google_calendar import GoogleCalendar
 from collections import defaultdict
+from gcsa.google_calendar import GoogleCalendar
+from .. import common as C
 
 
 TEMPLATE_AGENDA = """
 # Agenda for {today_long}
+
+## Notes
+
 
 ## Tasks
 
@@ -25,95 +29,37 @@ Finished
 done on {today}
 ```
 
-## Schedule
-
-```itinerary
-initialDate: {today}
-initialView: listYear
-headerToolbar:
-eventOrder: start,color
-```
-
 ## Today
 
 {events_today}
-
-
-## Notes
-
 
 ## Upcoming
 
 {events_upcoming}
 """.strip()
 
-TEMPLATE_EVENT = """
-### {start_hour} {summary}
-```itinerary-event
-title: {summary}
-start: {start}
-end: {end}
-timeZone: {timezone}
-tag: [today]
-```
-* Location: {location}
-""".strip()
 
-TEMPLATE_EVENT_UPCOMING = """
-#### {start_hour} {summary}
-```itinerary-event
-title: {summary}
-start: {start}
-end: {end}
-timeZone: {timezone}
-tag: [upcoming]
-```
-"""
+class GoogleEvent(C.DefaultEvent):
+    pass
 
 
-def format_event(event):
-    txt = TEMPLATE_EVENT.format(
-        summary=event.summary,
-        timezone=event.timezone,
-        description=event.description or 'No description',
-        location=event.location,
-        start_hour=event.start.strftime('%-I:%M%p'),
-        start=event.start.isoformat(),
-        end=event.end.isoformat(),
-    )
-    if event.attendees:
-        snip = '* Attendees'
-        for i, a in enumerate(event.attendees):
-            snip += '\n  * {}'.format(getattr(a, 'email', repr(a)))
-            if i >= 2:
-                snip += '\n  ...'
-                break
-        txt += '\n{}'.format(snip)
-    if event.description:
-        txt += '\n* Description:\n```\n{}\n```'.format(event.description.strip())
-    return txt
+def convert_google_events(events):
+    return [GoogleEvent(summary=e.summary, start=e.start, end=e.end, location=e.location) for e in events]
 
 
 def format_upcoming(upcoming, subtree, name_format):
     txt = []
     for days, events in upcoming.items():
         date = events[0].start
-        txt.append('### In [[{subtree}/{filename} | {days} days {pretty_date}]]:'.format(
+        name = '### In [[{subtree}/{filename} | {days} days {pretty_date}]]:'.format(
             days=days,
             subtree=subtree,
             filename=date.strftime(name_format),
             pretty_date=date.strftime('%A - %B %d'),
-        ))
-        for event in events:
-            txt.append(TEMPLATE_EVENT_UPCOMING.format(
-                summary=event.summary,
-                timezone=event.timezone,
-                description=event.description or 'No description',
-                location=event.location,
-                start_hour=event.start.strftime('%-I:%M%p'),
-                start=event.start.isoformat(),
-                end=event.end.isoformat(),
-            ))
+        )
+        txt.append(name)
+        table = C.make_event_table(Event=C.DefaultEvent, events=convert_google_events(events))
+        txt.append(table)
         txt.append('')
     return '\n'.join(txt)
 
@@ -124,7 +70,7 @@ def build_note_for_date(events, date, args):
         event_start = force_datetime(event.start)
         is_today = force_datetime(event_start).replace(hour=0, minute=0, second=0, microsecond=0) <= date
         if is_today:
-            events_today.append(format_event(event))
+            events_today.append(event)
         else:
             events_upcoming[(event_start - date).days].append(event)
 
@@ -132,7 +78,7 @@ def build_note_for_date(events, date, args):
         today=date.strftime('%Y-%m-%d'),
         today_long=date.strftime('%A - %B %d, %Y'),
         due=(date + datetime.timedelta(days=14)).strftime('%Y-%m-%d'),
-        events_today='\n\n'.join(events_today),
+        events_today=C.make_event_table(Event=C.DefaultEvent, events=convert_google_events(events_today)),
         events_upcoming=format_upcoming(events_upcoming, args.subtree, args.name_format),
     )
 
@@ -142,7 +88,7 @@ def build_note_for_date(events, date, args):
             print('Overwriting non-notes section')
             with fnote.open('rt') as f:
                 content = f.read()
-                existing_notes = re.findall(r'(## Notes.+)\n\n## Upcoming', content, re.DOTALL)
+                existing_notes = re.findall(r'(## Notes.+)\n## Tasks', content, re.DOTALL)
                 assert len(existing_notes) == 1, 'Invalid number of note sections = {}'.format(len(existing_notes))
             with fnote.open('wt') as f:
                 f.write(txt.replace('## Notes', existing_notes[0]))
