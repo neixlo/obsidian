@@ -135,6 +135,7 @@ def main():
 
     api = PyiCloudService(args.apple_id)
     events = api.calendar.events(now, now + datetime.timedelta(days=args.days - 1 + args.upcoming))
+    events = [e for e in events if e['eventStatus'] in {'CONFIRMED'}]
     for e in events:
         fix_dates(e)
 
